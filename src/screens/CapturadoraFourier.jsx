@@ -1,8 +1,15 @@
 import React, { useRef, useState, useEffect } from 'react'
 import { FaCircleStop, FaMicrophone, FaUpload } from 'react-icons/fa6'
 import { useAudioVisualizer } from '@tkhdev/react-audio-visualizer'
+import JSZip from 'jszip';
 
+const tipos_audio = ['.mp3', '.wav']
 
+function siesAudio(nombre) {
+    const minuscula = nombre.toLowerCase()
+    return tipos_audio.some(tipo => minuscula.endsWith(tipo))
+
+}
 
 function AudioVisual({ audioURL}){
     const Audio = useRef(null)
@@ -139,34 +146,73 @@ function Reproductor(){
         stop()
     }
 
-    const subirAudio = (e) => {
-        const archivo = e.target.files[0]
-        if (!archivo) return
+const subirAudio = async (e) => {
+    const archivo = e.target.files[0]
+    if (!archivo) return
 
+    const siesATM = archivo.name.toLowerCase().endsWith('.atm')
 
-        if (!archivo.type.startsWith('audio/')) {
-            alert('Por favor, selecciona un archivo de audio válido.')
-            return
+    if (!siesATM && !archivo.type.startsWith('audio/')) {
+        alert('Este bicho usa .atm(podes poner un .zip y cambiarle la extension a .atm) o un audio para probar, mp3 o wav, pero nada mas')
+        return
+    }
+
+    if (Grabando) {
+        parargrabacion()
+    }
+
+    if (siesATM) {
+        try {
+            const zip = new JSZip()
+            const zipencontrado = await zip.loadAsync(archivo)
+
+            let entradaAudio = null
+
+            for (const [nombre, entrada] of Object.entries(zipencontrado.files)) {
+                if (!entrada.dir && siesAudio(nombre)) {
+                    entradaAudio = { nombre, entrada }
+                    break
+                }
+            }
+
+            if (!entradaAudio) {
+                alert('No hay MP3, no hay WAV en el archivo, no se reproduce nada')
+                e.target.value = ''
+                return
+            }
+
+            const blob = await entradaAudio.entrada.async('blob')
+            const mimeType = entradaAudio.nombre.toLowerCase().endsWith('.mp3')
+                ? 'audio/mpeg'
+                : 'audio/wav'
+
+            const typedBlob = new Blob([blob], { type: mimeType })
+            const url = URL.createObjectURL(typedBlob)
+
+            setaudio(url)
+            setsegundos(0)
+        } catch (error) {
+            console.log(error)
+            alert('No se pudo leer el archivo .atm.')
         }
-
-        if (Grabando) {
-            parargrabacion()
-        }
-        
+    } else {
         const url = URL.createObjectURL(archivo)
         setaudio(url)
         setsegundos(0)
-        e.target.value = ''
     }
+
+    e.target.value = ''
+}
 
     const tiempoFormateado = () => {
         const minutos = Math.floor(segundos / 60)
         const segundosRestantes = segundos % 60
         return `${minutos.toString().padStart(2, '0')}:${segundosRestantes.toString().padStart(2, '0')}`
     }
+    // Hay que mejorar el frontend, pero la verdad yo NO le se al frontend 
 
     return (<div className='w-full h-screen flex flex-col items-center justify-center bg-gradient-to-r from-cyan-500 to-blue-500 gap-4'>
-          <h1 className='text-white text-[60px] font-black'>Reproductor</h1>
+          
     
           <h2 className='text-[100px] text-white bg-black p-4 rounded-lg mx-4'>
             {tiempoFormateado(segundos)}
@@ -182,19 +228,13 @@ function Reproductor(){
                 <FaMicrophone />
               </button>
             )}
-    
-            <button
-              onClick={() => inputFile.current?.click()}
-              className='flex items-center justify-center text-[32px] bg-white text-blue-600 rounded-full p-4 w-[100px] h-[100px]'
-            >
-              <FaUpload />
-            </button>
+
           </div>
     
           <input
             ref={inputFile}
             type='file'
-            accept='audio/*'
+            accept='audio/*,.atm'
             onChange={subirAudio}
             className='hidden'
           />
