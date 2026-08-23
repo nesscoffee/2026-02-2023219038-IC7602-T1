@@ -1,11 +1,25 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
 import heroImg from './assets/hero.png'
+import Reproductor, { ZoomAudio } from './screens/CapturadoraFourier'
 import './App.css'
 
 function App() {
   const [count, setCount] = useState(0)
+  const [screen, setScreen] = useState('home')
+  if (screen === 'Reproductor') {
+    return (
+      <>
+        <button onClick={() => setScreen('home')} style={{ position: 'absolute', top: 16, left: 16, zIndex: 10 }}>
+          ← Back
+        </button>
+        
+        <Reproductor/>
+        
+      </>
+    )
+  }
 
   return (
     <>
@@ -27,6 +41,13 @@ function App() {
           onClick={() => setCount((count) => count + 1)}
         >
           Count is {count}
+        </button>
+        <button
+          type="button"
+          className="counter"
+          onClick={() => setScreen('Reproductor')}
+        >
+          Ir al reproductor
         </button>
       </section>
 
