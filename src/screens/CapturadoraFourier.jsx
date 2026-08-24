@@ -1,14 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { FaCircleStop, FaMicrophone, FaUpload } from 'react-icons/fa6'
 import { useAudioVisualizer } from '@tkhdev/react-audio-visualizer'
+import JSZip from 'jszip';
 
-function AudioVisual({ audioURL }) {
+const tipos_audio = ['.mp3', '.wav']
+
+function siesAudio(nombre) {
+    const minuscula = nombre.toLowerCase()
+    return tipos_audio.some(tipo => minuscula.endsWith(tipo))
+
+}
+
+function AudioVisual({ audioURL}){
     const Audio = useRef(null)
     const [, forceRender] = useState(0)
 
     useEffect(() => {
         forceRender((n) => n + 1)
     }, [audioURL])
+    
     const { canvasRef, start, stop } = useAudioVisualizer({
         source: Audio.current,
         mode: 'spectrum',
@@ -412,7 +422,7 @@ function Reproductor() {
         stop()
     }
 
-    const pausargrabacion = () => {
+const pausargrabacion = () => {
         if (
             grabaraudio.current &&
             grabaraudio.current.state === 'recording'
@@ -434,20 +444,15 @@ function Reproductor() {
         }
     }
 
-    const subirAudio = (event) => {
-        const archivo = event.target.files[0]
-        if (!archivo) return
+    const subirAudio = async (event) => {
+    const archivo = event.target.files[0]
+    if (!archivo) return
 
-        const esWav =
-            archivo.type === 'audio/wav' ||
-            archivo.type === 'audio/x-wav' ||
-            archivo.name.toLowerCase().endsWith('.wav')
-
-        if (!esWav) {
-            alert('El Analizador únicamente acepta archivos WAV.')
-            event.target.value = ''
-            return
-        }
+   const siesATM = archivo.name.toLowerCase().endsWith('.atm')
+    if (!siesATM && !archivo.type.startsWith('audio/')) {
+        alert('Este bicho usa .atm(podes poner un .zip y cambiarle la extension a .atm) o un audio para probar, mp3 o wav, pero nada mas')
+        return
+    }
 
         if (
             estadoGrabacion === 'grabando' ||
@@ -457,14 +462,50 @@ function Reproductor() {
             descartarGrabacionRef.current = true
             parargrabacion()
         }
+        
 
+if (siesATM) {
+        try {
+            const zip = new JSZip()
+            const zipencontrado = await zip.loadAsync(archivo)
+
+            let entradaAudio = null
+
+            for (const [nombre, entrada] of Object.entries(zipencontrado.files)) {
+                if (!entrada.dir && siesAudio(nombre)) {
+                    entradaAudio = { nombre, entrada }
+                    break
+                }
+            }
+
+            if (!entradaAudio) {
+                alert('No hay MP3, no hay WAV en el archivo, no se reproduce nada')
+                event.target.value = ''
+                return
+            }
+
+            const blob = await entradaAudio.entrada.async('blob')
+            const mimeType = entradaAudio.nombre.toLowerCase().endsWith('.mp3')
+                ? 'audio/mpeg'
+                : 'audio/wav'
+
+            const typedBlob = new Blob([blob], { type: mimeType })
+            const url = URL.createObjectURL(typedBlob)
+
+            setaudio(url)
+            setsegundos(0)
+        } catch (error) {
+            console.log(error)
+            alert('No se pudo leer el archivo .atm.')
+        }
+    } else {
         const url = URL.createObjectURL(archivo)
         setaudio(url)
         setsegundos(0)
-        setFrecuenciaDominante(null)
-
-        event.target.value = ''
     }
+
+    event.target.value = ''
+}
 
     const tiempoFormateado = () => {
         const minutos = Math.floor(segundos / 60)
@@ -474,6 +515,7 @@ function Reproductor() {
             .toString()
             .padStart(2, '0')}`
     }
+    // Hay que mejorar el frontend, pero la verdad yo NO le se al frontend 
 
     return (
         <div className="w-full min-h-screen flex flex-col items-center justify-center bg-gradient-to-r from-cyan-500 to-blue-500 gap-4 p-4">
@@ -547,7 +589,7 @@ function Reproductor() {
             <input
                 ref={inputFile}
                 type="file"
-                accept=".wav,audio/wav,audio/x-wav"
+                accept="audio/*,.atm"
                 onChange={subirAudio}
                 className="hidden"
             />
