@@ -3,37 +3,34 @@ import { FaCircleStop, FaMicrophone, FaUpload } from 'react-icons/fa6'
 import { useAudioVisualizer } from '@tkhdev/react-audio-visualizer'
 
 
-
-function AudioVisual({ audioURL}){
+//Cambio naty: permite reproducir un audio (el análisis de espectro/tiempo lo maneja Reproductor con su propio AnalyserNode)
+function AudioVisual({ audioURL, onAudioReady, onPlay: onPlayExterno, onPause: onPauseExterno }){
     const Audio = useRef(null)
-    const [, forceRender] = useState(0)
 
     useEffect(() => {
-        forceRender(n => n + 1)
+        if (Audio.current && onAudioReady) {
+            onAudioReady(Audio.current)
+        }
     }, [audioURL])
 
+    const manejarPlay = () => {
+        if (onPlayExterno) onPlayExterno()
+    }
 
-    const { canvasRef, start, stop } = useAudioVisualizer({
-        source: Audio.current,
-        mode: 'spectrum',
-        barColor: '#ac65f7',
-        backgroundColor: '#464646'
-    })
+    const manejarPause = () => {
+        if (onPauseExterno) onPauseExterno()
+    }
 
     return (
-        <>
-        <canvas ref={canvasRef} width="1200" height="300" />
         <audio
             ref={Audio}
             controls
             src={audioURL}
-            onPlay={start}
-            onPause={stop}
-            onEnded={stop}
+            onPlay={manejarPlay}
+            onPause={manejarPause}
+            onEnded={manejarPause}
         />
-
-        </>)
-        
+    )
 }
 
 function ZoomAudio({ children }) {
@@ -95,6 +92,8 @@ function Reproductor(){
     const datosTiempo = useRef([])
     const animacionRef = useRef(null)
     const canvasTiempoRef = useRef(null)
+    const canvasEspectroSubidoRef = useRef(null)
+    const audioSubidoRef = useRef(null)
 
     const { canvasRef: liveCanvas, start: startvisualizer, stop } = useAudioVisualizer({
         source: 'mic',
@@ -104,22 +103,37 @@ function Reproductor(){
     })
 
     //Cambios naty
-
-    const iniciarAnalisisPropio = (stream) => {
+    const iniciarAnalisisPropio = (streamOAudioElement, esArchivo = false) => {
         audioCtxRef.current = new AudioContext()
-        const source = audioCtxRef.current.createMediaStreamSource(stream)
+
+        let source
+        if (esArchivo) {
+            source = audioCtxRef.current.createMediaElementSource(streamOAudioElement)
+        } else {
+            source = audioCtxRef.current.createMediaStreamSource(streamOAudioElement)
+        }
+
         analyserRef.current = audioCtxRef.current.createAnalyser()
         analyserRef.current.fftSize = 2048
         source.connect(analyserRef.current)
+
+        if (esArchivo) {
+            source.connect(audioCtxRef.current.destination)
+        }
 
         const bins = analyserRef.current.frequencyBinCount
         const freqArray = new Float32Array(bins)
         const timeArray = new Float32Array(analyserRef.current.fftSize)
 
         const capturarFrame = () => {
-            if (grabaraudio.current?.state === 'recording') {
-                analyserRef.current.getFloatFrequencyData(freqArray)
-                analyserRef.current.getFloatTimeDomainData(timeArray)
+            let grabando = false
+            if (grabaraudio.current && grabaraudio.current.state === 'recording') {
+                grabando = true
+            }
+
+            if (grabando) {
+                analyserRef.current.getFloatFrequencyData(freqArray)  // Captura de datos de frecuencia
+                analyserRef.current.getFloatTimeDomainData(timeArray)  // Captura de datos de tiempo para la forma de onda
                 datosFrecuencia.current.push(Array.from(freqArray))
                 datosTiempo.current.push(Array.from(timeArray))
                 dibujarOnda(timeArray)
@@ -155,6 +169,70 @@ function Reproductor(){
             }
         }
         ctx.stroke()
+    }
+
+    // Función para dibujar el espectro de frecuencia (barras) del audio subido, ya que no se usa la librería en este modo
+    const dibujarEspectro = (freqArray) => {
+        const canvas = canvasEspectroSubidoRef.current
+        if (!canvas) return
+        const ctx = canvas.getContext('2d')
+        const ancho = canvas.width
+        const alto = canvas.height
+
+        ctx.fillStyle = '#464646'
+        ctx.fillRect(0, 0, ancho, alto)
+
+        const anchoBarra = ancho / freqArray.length
+        ctx.fillStyle = '#ac65f7'
+        for (let i = 0; i < freqArray.length; i++) {
+            const valor = (freqArray[i] + 140) / 140
+            const alturaBarra = Math.max(0, valor) * alto
+            ctx.fillRect(i * anchoBarra, alto - alturaBarra, anchoBarra, alturaBarra)
+        }
+    }
+
+    // Se conecta una única vez, cuando el <audio> del archivo subido está listo (evita el error de "already connected" al reproducir varias veces)
+    const audioSubidoListo = (elementoAudio) => {
+        if (audioSubidoRef.current === elementoAudio && analyserRef.current) {
+            return
+        }
+        audioSubidoRef.current = elementoAudio
+        audioCtxRef.current = new AudioContext()
+        const source = audioCtxRef.current.createMediaElementSource(elementoAudio)
+        analyserRef.current = audioCtxRef.current.createAnalyser()
+        analyserRef.current.fftSize = 2048
+        source.connect(analyserRef.current)
+        source.connect(audioCtxRef.current.destination)
+    }
+
+    // Se llama cada vez que se le da play al audio subido; solo inicia el loop de captura, no vuelve a conectar nada
+    const audioSubidoAnalizar = () => {
+        if (!analyserRef.current) return
+        datosFrecuencia.current = []
+        datosTiempo.current = []
+
+        const bins = analyserRef.current.frequencyBinCount
+        const freqArray = new Float32Array(bins)
+        const timeArray = new Float32Array(analyserRef.current.fftSize)
+
+        const capturarFrame = () => {
+            if (!audioSubidoRef.current.paused) {
+                analyserRef.current.getFloatFrequencyData(freqArray)
+                analyserRef.current.getFloatTimeDomainData(timeArray)
+                datosFrecuencia.current.push(Array.from(freqArray))
+                datosTiempo.current.push(Array.from(timeArray))
+                dibujarOnda(timeArray)
+                dibujarEspectro(freqArray)
+            }
+            animacionRef.current = requestAnimationFrame(capturarFrame)
+        }
+        capturarFrame()
+    }
+
+    const audioSubidoDetener = () => {
+        if (animacionRef.current) {
+            cancelAnimationFrame(animacionRef.current)
+        }
     }
 
     const hacergrabacion = async () => {
@@ -204,8 +282,6 @@ function Reproductor(){
         if (audioCtxRef.current) {
             audioCtxRef.current.close()
         }
-        /*console.log('Ventanas de frecuencia capturadas:', datosFrecuencia.current.length) //Test: Muestra la cantidad de ventanas de frecuencia capturadas
-        console.log('Ejemplo primera ventana:', datosFrecuencia.current[0]) //Test: Muestra la primera ventana de frecuencia capturada*/
         stop()
     }
 
@@ -310,9 +386,23 @@ function Reproductor(){
             )}
 
         {audio && estadoGrabacion === 'detenido' && (
+            <>
             <ZoomAudio>
-            <AudioVisual key={audio} audioURL={audio} />
+            <AudioVisual
+                key={audio}
+                audioURL={audio}
+                onAudioReady={audioSubidoListo}
+                onPlay={audioSubidoAnalizar}
+                onPause={audioSubidoDetener}
+            />
             </ZoomAudio>
+            <ZoomAudio>
+            <canvas ref={canvasEspectroSubidoRef} width={1200} height={300} />
+            </ZoomAudio>
+            <ZoomAudio>
+            <canvas ref={canvasTiempoRef} width={1200} height={300} />
+            </ZoomAudio>
+            </>
             )}
         </div>
       )
