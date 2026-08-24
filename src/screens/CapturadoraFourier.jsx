@@ -9,7 +9,6 @@ function AudioVisual({ audioURL }) {
     useEffect(() => {
         forceRender((n) => n + 1)
     }, [audioURL])
-
     const { canvasRef, start, stop } = useAudioVisualizer({
         source: Audio.current,
         mode: 'spectrum',
@@ -42,7 +41,6 @@ function ZoomAudio({ children }) {
 
         const handleWheel = (event) => {
             event.preventDefault()
-
             setEscala((prev) => {
                 const nuevaEscala = Math.min(
                     5,
