@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useRef, useState } from 'react'
 import { FaCircleStop, FaMicrophone, FaUpload } from 'react-icons/fa6'
 import { useAudioVisualizer } from '@tkhdev/react-audio-visualizer'
 import JSZip from 'jszip';
@@ -295,8 +295,12 @@ function formatearTiempo(segundos) {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
 }
 
-function GraficoCoincidencia({ puntajes, mejorOffset, hopSize, sampleRate, potenciaB }) {
-    const canvasRef = useRef(null)
+const GraficoCoincidencia = forwardRef(function GraficoCoincidencia(
+    { puntajes, mejorOffset, hopSize, sampleRate, potenciaB },
+    canvasRefExterno
+) {
+    const canvasPropio = useRef(null)
+    const canvasRef = canvasRefExterno || canvasPropio
 
     useEffect(() => {
         const canvas = canvasRef.current
@@ -424,11 +428,12 @@ function GraficoCoincidencia({ puntajes, mejorOffset, hopSize, sampleRate, poten
             style={{ background: '#111827', borderRadius: 8, width: '100%', display: 'block' }}
         />
     )
-}
+})
 
 
-function GraficoPerfil({ perfilA, perfilB, modo }) {
-    const canvasRef = useRef(null)
+const GraficoPerfil = forwardRef(function GraficoPerfil({ perfilA, perfilB, modo }, canvasRefExterno) {
+    const canvasPropio = useRef(null)
+    const canvasRef = canvasRefExterno || canvasPropio
 
     useEffect(() => {
         const canvas = canvasRef.current
@@ -500,7 +505,87 @@ function GraficoPerfil({ perfilA, perfilB, modo }) {
             style={{ background: '#111827', borderRadius: 8, width: '100%', display: 'block' }}
         />
     )
+})
+
+
+function extraerFormaOnda(channelData, muestrasSalida = 1600) {
+    const paso = Math.floor(channelData.length / muestrasSalida) || 1
+    const min = new Float32Array(muestrasSalida)
+    const max = new Float32Array(muestrasSalida)
+
+    for (let i = 0; i < muestrasSalida; i++) {
+        let mn = 1
+        let mx = -1
+        const inicio = i * paso
+        const fin = Math.min(inicio + paso, channelData.length)
+        for (let j = inicio; j < fin; j++) {
+            const v = channelData[j]
+            if (v < mn) mn = v
+            if (v > mx) mx = v
+        }
+        min[i] = mn
+        max[i] = mx
+    }
+
+    return { min, max }
 }
+
+function extensionDeMime(mime) {
+    if (!mime) return 'audio'
+    if (mime.includes('wav')) return 'wav'
+    if (mime.includes('mpeg')) return 'mp3'
+    if (mime.includes('webm')) return 'webm'
+    if (mime.includes('ogg')) return 'ogg'
+    return 'audio'
+}
+
+const GraficoOriginal = forwardRef(function GraficoOriginal({ forma, duracion, nombre }, canvasRefExterno) {
+    const canvasPropio = useRef(null)
+    const canvasRef = canvasRefExterno || canvasPropio
+
+    useEffect(() => {
+        const canvas = canvasRef.current
+        if (!canvas || !forma) return
+
+        const ctx = canvas.getContext('2d')
+        const ancho = canvas.width
+        const alto = canvas.height
+        const mitad = alto / 2
+
+        ctx.fillStyle = '#111827'
+        ctx.fillRect(0, 0, ancho, alto)
+
+        ctx.strokeStyle = '#374151'
+        ctx.beginPath()
+        ctx.moveTo(0, mitad)
+        ctx.lineTo(ancho, mitad)
+        ctx.stroke()
+
+        const n = forma.min.length
+        const pasoX = ancho / n
+
+        ctx.fillStyle = '#facc15'
+        for (let i = 0; i < n; i++) {
+            const x = i * pasoX
+            const yMin = mitad - forma.min[i] * mitad
+            const yMax = mitad - forma.max[i] * mitad
+            ctx.fillRect(x, Math.min(yMin, yMax), Math.max(1, pasoX), Math.max(1, Math.abs(yMax - yMin)))
+        }
+
+        ctx.fillStyle = '#e5e7eb'
+        ctx.font = '13px sans-serif'
+        ctx.fillText(`${nombre} · ${formatearTiempo(duracion)}`, 8, 16)
+    }, [forma, duracion, nombre])
+
+    return (
+        <canvas
+            ref={canvasRef}
+            width={1200}
+            height={160}
+            style={{ background: '#111827', borderRadius: 8, width: '100%', display: 'block' }}
+        />
+    )
+})
 
 
 function useGrabadorSimple() {
@@ -617,16 +702,32 @@ function ComparadorAudio() {
     const [resultado, setResultado] = useState(null)
     const [cargando, setCargando] = useState(false)
     const [error, setError] = useState('')
+    const [descargando, setDescargando] = useState(false)
+    const [original, setOriginal] = useState(null)
+
+    const canvasCoincidenciaRef = useRef(null)
+    const canvasPerfilRef = useRef(null)
+    const canvasOriginalRef = useRef(null)
 
     const comparar = async () => {
         setCargando(true)
         setError('')
         setResultado(null)
+        setOriginal(null)
         try {
             const [bufferA, bufferB] = await Promise.all([
                 decodificarArchivo(archivoA),
                 decodificarArchivo(archivoB)
             ])
+
+            const esAOriginal = bufferA.duration >= bufferB.duration
+            const bufferOriginal = esAOriginal ? bufferA : bufferB
+            setOriginal({
+                forma: extraerFormaOnda(bufferOriginal.getChannelData(0)),
+                duracion: bufferOriginal.duration,
+                nombre: esAOriginal ? 'Audio A' : 'Audio B',
+                blob: esAOriginal ? archivoA : archivoB
+            })
 
             const [featA, featB] = await Promise.all([
                 extraerCaracteristicas(bufferA),
@@ -666,6 +767,62 @@ function ComparadorAudio() {
             setError(e.message)
         } finally {
             setCargando(false)
+        }
+    }
+
+    const canvasABlob = (canvas) => new Promise((resolve) => {
+        canvas.toBlob(resolve, 'image/jpeg', 0.92)
+    })
+
+    const descargarResultado = async () => {
+        if (
+            !resultado ||
+            !original ||
+            !canvasCoincidenciaRef.current ||
+            !canvasPerfilRef.current ||
+            !canvasOriginalRef.current
+        ) return
+
+        setDescargando(true)
+        try {
+            const [originalBlobJpg, coincidenciaBlob, perfilBlob] = await Promise.all([
+                canvasABlob(canvasOriginalRef.current),
+                canvasABlob(canvasCoincidenciaRef.current),
+                canvasABlob(canvasPerfilRef.current)
+            ])
+
+            const zip = new JSZip()
+            const extension = extensionDeMime(original.blob.type)
+
+            zip.file(`audio-original.${extension}`, original.blob)
+            zip.file('grafico-audio-original.jpg', originalBlobJpg)
+            zip.file('grafico-coincidencia.jpg', coincidenciaBlob)
+            zip.file('grafico-perfil.jpg', perfilBlob)
+            zip.file('resultado.json', JSON.stringify({
+                audioOriginal: original.nombre,
+                duracionSegundos: original.duracion,
+                modo: resultado.modo,
+                tiempoSegundos: resultado.tiempoSegundos,
+                confianza: resultado.confianza,
+                offset: resultado.offset,
+                hopSize: resultado.hopSize,
+                sampleRate: resultado.sampleRate
+            }, null, 2))
+
+            const zipBlob = await zip.generateAsync({ type: 'blob' })
+            const url = URL.createObjectURL(zipBlob)
+
+            const enlace = document.createElement('a')
+            enlace.href = url
+            enlace.download = 'comparacion.atm'
+            enlace.click()
+
+            URL.revokeObjectURL(url)
+        } catch (e) {
+            console.log(e)
+            alert('No se pudo armar el archivo de descarga')
+        } finally {
+            setDescargando(false)
         }
     }
 
@@ -712,12 +869,27 @@ function ComparadorAudio() {
                         {' '}(modo: {modo})
                     </p>
 
+                    {original && (
+                        <div className="flex flex-col gap-2">
+                            <h4 className="text-sm font-semibold text-blue-900">
+                                Audio original ({original.nombre}, el más largo de los dos)
+                            </h4>
+                            <GraficoOriginal
+                                ref={canvasOriginalRef}
+                                forma={original.forma}
+                                duracion={original.duracion}
+                                nombre={original.nombre}
+                            />
+                        </div>
+                    )}
+
                     <div className="flex flex-col gap-2">
                         <h4 className="text-sm font-semibold text-blue-900">
                             Dónde: puntaje de coincidencia a lo largo de todo el audio B
                         </h4>
                         <ZoomAudio>
                             <GraficoCoincidencia
+                                ref={canvasCoincidenciaRef}
                                 puntajes={resultado.puntajes}
                                 mejorOffset={resultado.offset}
                                 hopSize={resultado.hopSize}
@@ -732,11 +904,20 @@ function ComparadorAudio() {
                             Por qué: perfil de A contra el segmento encontrado en B
                         </h4>
                         <GraficoPerfil
+                            ref={canvasPerfilRef}
                             perfilA={resultado.perfilA}
                             perfilB={resultado.perfilB}
                             modo={resultado.modo}
                         />
                     </div>
+
+                    <button
+                        onClick={descargarResultado}
+                        disabled={descargando}
+                        className="bg-purple-600 text-white rounded p-2 w-fit disabled:opacity-50"
+                    >
+                        {descargando ? 'Preparando...' : 'Descargar .atm (audio original + 3 gráficos)'}
+                    </button>
                 </>
             )}
         </div>
