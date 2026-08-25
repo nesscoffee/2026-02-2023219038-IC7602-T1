@@ -11,32 +11,247 @@ function siesAudio(nombre) {
 }
 
 function AudioVisual({ audioURL }) {
-    const Audio = useRef(null)
-    const [, forceRender] = useState(0)
+    const audioRef = useRef(null)
+    const canvasTiempoRef = useRef(null)
+    const canvasFrecuenciaRef = useRef(null)
+
+    const audioCtxRef = useRef(null)
+    const analyserRef = useRef(null)
+    const sourceRef = useRef(null)
+    const animationRef = useRef(null)
 
     useEffect(() => {
-        forceRender((n) => n + 1)
-    }, [audioURL])
+        return () => {
+            if (animationRef.current) {
+                cancelAnimationFrame(animationRef.current)
+            }
 
-    const { canvasRef, start, stop } = useAudioVisualizer({
-        source: Audio.current,
-        mode: 'spectrum',
-        barColor: '#ac65f7',
-        backgroundColor: '#464646'
-    })
+            if (
+                audioCtxRef.current &&
+                audioCtxRef.current.state !== 'closed'
+            ) {
+                audioCtxRef.current.close()
+            }
+        }
+    }, [])
+
+    const dibujarTiempo = (datos) => {
+        const canvas = canvasTiempoRef.current
+        if (!canvas) return
+
+        const ctx = canvas.getContext('2d')
+        const ancho = canvas.width
+        const alto = canvas.height
+
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, ancho, alto)
+
+        ctx.strokeStyle = '#2563eb'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+
+        const paso = ancho / datos.length
+
+        for (let i = 0; i < datos.length; i++) {
+            const x = i * paso
+            const y = (datos[i] * 0.5 + 0.5) * alto
+
+            if (i === 0) {
+                ctx.moveTo(x, y)
+            } else {
+                ctx.lineTo(x, y)
+            }
+        }
+
+        ctx.stroke()
+    }
+
+    const dibujarFrecuencia = (
+        datos,
+        sampleRate,
+        fftSize
+    ) => {
+        const canvas = canvasFrecuenciaRef.current
+        if (!canvas) return
+
+        const ctx = canvas.getContext('2d')
+        const ancho = canvas.width
+        const alto = canvas.height
+
+        ctx.fillStyle = '#111827'
+        ctx.fillRect(0, 0, ancho, alto)
+
+        // Solo mostramos hasta 8 kHz para que voz/audio
+        // sea más fácil de visualizar.
+        const frecuenciaMaxima = Math.min(
+            8000,
+            sampleRate / 2
+        )
+
+        const binMaximo = Math.min(
+            datos.length,
+            Math.floor(
+                (frecuenciaMaxima * fftSize) /
+                sampleRate
+            )
+        )
+
+        const anchoBarra = ancho / binMaximo
+
+        for (let i = 0; i < binMaximo; i++) {
+            // getFloatFrequencyData devuelve dB.
+            // Normalizamos aproximadamente entre -100 y 0 dB.
+            const db = Number.isFinite(datos[i])
+                ? datos[i]
+                : -100
+
+            const normalizado = Math.max(
+                0,
+                Math.min(1, (db + 100) / 100)
+            )
+
+            const alturaBarra =
+                normalizado * alto
+
+            const x = i * anchoBarra
+
+            ctx.fillStyle = '#ac65f7'
+
+            ctx.fillRect(
+                x,
+                alto - alturaBarra,
+                Math.max(1, anchoBarra),
+                alturaBarra
+            )
+        }
+
+        ctx.fillStyle = '#e5e7eb'
+        ctx.font = '12px sans-serif'
+
+        ctx.fillText('0 Hz', 4, alto - 5)
+        ctx.fillText(
+            `${frecuenciaMaxima} Hz`,
+            ancho - 65,
+            alto - 5
+        )
+    }
+
+    const iniciarVisualizacion = async () => {
+        const audio = audioRef.current
+        if (!audio) return
+
+        const AudioContextClass =
+            window.AudioContext ||
+            window.webkitAudioContext
+
+        if (!audioCtxRef.current) {
+            const ctx = new AudioContextClass()
+            audioCtxRef.current = ctx
+
+            const source =
+                ctx.createMediaElementSource(audio)
+
+            const analyser =
+                ctx.createAnalyser()
+
+            analyser.fftSize = 2048
+
+            source.connect(analyser)
+            analyser.connect(ctx.destination)
+
+            sourceRef.current = source
+            analyserRef.current = analyser
+        }
+
+        if (audioCtxRef.current.state === 'suspended') {
+            await audioCtxRef.current.resume()
+        }
+
+        const analyser = analyserRef.current
+
+        const datosTiempo =
+            new Float32Array(analyser.fftSize)
+
+        const datosFrecuencia =
+            new Float32Array(
+                analyser.frequencyBinCount
+            )
+
+        const actualizar = () => {
+            analyser.getFloatTimeDomainData(
+                datosTiempo
+            )
+
+            analyser.getFloatFrequencyData(
+                datosFrecuencia
+            )
+
+            dibujarTiempo(datosTiempo)
+
+            dibujarFrecuencia(
+                datosFrecuencia,
+                audioCtxRef.current.sampleRate,
+                analyser.fftSize
+            )
+
+            if (!audio.paused && !audio.ended) {
+                animationRef.current =
+                    requestAnimationFrame(actualizar)
+            }
+        }
+
+        actualizar()
+    }
+
+    const detenerVisualizacion = () => {
+        if (animationRef.current) {
+            cancelAnimationFrame(
+                animationRef.current
+            )
+
+            animationRef.current = null
+        }
+    }
 
     return (
-        <>
-            <canvas ref={canvasRef} width="1200" height="300" />
+        <div className="w-full flex flex-col gap-4">
+
+            <div>
+                <h3 className="text-white font-semibold mb-2">
+                    Dominio del tiempo
+                </h3>
+
+                <canvas
+                    ref={canvasTiempoRef}
+                    width={1200}
+                    height={300}
+                    className="w-full"
+                />
+            </div>
+
+            <div>
+                <h3 className="text-white font-semibold mb-2">
+                    Dominio de la frecuencia
+                </h3>
+
+                <canvas
+                    ref={canvasFrecuenciaRef}
+                    width={1200}
+                    height={300}
+                    className="w-full"
+                />
+            </div>
+
             <audio
-                ref={Audio}
+                ref={audioRef}
                 controls
                 src={audioURL}
-                onPlay={start}
-                onPause={stop}
-                onEnded={stop}
+                className="w-full"
+                onPlay={iniciarVisualizacion}
+                onPause={detenerVisualizacion}
+                onEnded={detenerVisualizacion}
             />
-        </>
+        </div>
     )
 }
 
