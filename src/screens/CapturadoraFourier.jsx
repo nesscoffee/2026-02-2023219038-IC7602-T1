@@ -85,12 +85,13 @@ function AudioVisual({ audioURL }) {
 
     return (
         <>
-            <canvas ref={canvasRef} width="1200" height="300" />
-            <canvas ref={canvasTiempoRef} width="1200" height="300" />
+            <canvas ref={canvasRef} width="1200" height="300" style={{ width: '100%', display: 'block' }} />
+            <canvas ref={canvasTiempoRef} width="1200" height="300" style={{ width: '100%', display: 'block' }} />
             <audio
                 ref={Audio}
                 controls
                 src={audioURL}
+                style={{ width: '100%', display: 'block' }}
                 onPlay={() => {
                     start()
                     iniciarOnda()
@@ -138,7 +139,6 @@ function ZoomAudio({ children }) {
                 overflow: 'auto',
                 width: '100%',
                 maxWidth: '1200px',
-                height: '300px',
                 border: '1px solid #ccc',
                 position: 'relative'
             }}
@@ -148,7 +148,7 @@ function ZoomAudio({ children }) {
                     transform: `scale(${Escala})`,
                     transformOrigin: '0 0',
                     width: '100%',
-                    height: '100%'
+                    height: 'auto'
                 }}
             >
                 {children}
