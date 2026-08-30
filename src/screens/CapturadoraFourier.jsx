@@ -13,9 +13,32 @@ function siesAudio(nombre) {
 function AudioVisual({ audioURL }) {
     const Audio = useRef(null)
     const [, forceRender] = useState(0)
+    const [forma, setForma] = useState(null)
+    const [duracion, setDuracion] = useState(0)
 
     useEffect(() => {
         forceRender((n) => n + 1)
+
+        let activo = true
+        fetch(audioURL)
+            .then((response) => response.arrayBuffer())
+            .then((arrayBuffer) => {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)()
+                return ctx.decodeAudioData(arrayBuffer).then((audioBuffer) => {
+                    if (activo) {
+                        setForma(extraerFormaOnda(audioBuffer.getChannelData(0)))
+                        setDuracion(audioBuffer.duration)
+                    }
+                    return ctx.close()
+                })
+            })
+            .catch(() => {
+                if (activo) setForma(null)
+            })
+
+        return () => {
+            activo = false
+        }
     }, [audioURL])
 
     const { canvasRef, start, stop } = useAudioVisualizer({
@@ -28,6 +51,7 @@ function AudioVisual({ audioURL }) {
     return (
         <>
             <canvas ref={canvasRef} width="1200" height="300" />
+            <GraficoOriginal forma={forma} duracion={duracion} nombre="Audio" />
             <audio
                 ref={Audio}
                 controls
