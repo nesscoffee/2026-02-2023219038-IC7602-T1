@@ -383,7 +383,7 @@ const GraficoCoincidencia = forwardRef(function GraficoCoincidencia(
 
         ctx.fillStyle = '#111827'
         ctx.fillRect(0, 0, ancho, alto)
-   
+
         ctx.strokeStyle = '#374151'
         ctx.lineWidth = 1
         for (let i = 0; i <= 4; i++) {
@@ -1411,6 +1411,7 @@ function Reproductor() {
                 accept="audio/*,.atm"
                 onChange={subirAudio}
                 className="hidden"
+                style={{ display: 'none' }}
             />
 
             {(estadoGrabacion === 'grabando' || estadoGrabacion === 'pausado') && (
