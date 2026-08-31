@@ -13,28 +13,97 @@ function siesAudio(nombre) {
 function AudioVisual({ audioURL }) {
     const Audio = useRef(null)
     const [, forceRender] = useState(0)
+    const [audioBuffer, setAudioBuffer] = useState(null)
+    const canvasTiempoRef = useRef(null)
+    const animacionRef = useRef(null)
 
     useEffect(() => {
         forceRender((n) => n + 1)
+
+        let activo = true
+        fetch(audioURL)
+            .then((response) => response.arrayBuffer())
+            .then((arrayBuffer) => {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)()
+                return ctx.decodeAudioData(arrayBuffer).then((audioBuffer) => {
+                    if (activo) {
+                        setAudioBuffer(audioBuffer)
+                    }
+                    return ctx.close()
+                })
+            })
+            .catch(() => {
+                if (activo) setForma(null)
+            })
+
+        return () => {
+            activo = false
+            if (animacionRef.current) cancelAnimationFrame(animacionRef.current)
+        }
     }, [audioURL])
 
     const { canvasRef, start, stop } = useAudioVisualizer({
         source: Audio.current,
         mode: 'spectrum',
-        barColor: '#ac65f7',
-        backgroundColor: '#464646'
+        barColor: '#f20707',
+        backgroundColor: '#ffffff'
     })
+
+    const actualizarOnda = () => {
+        const audio = Audio.current
+        if (!audioBuffer || !audio) return
+
+        const muestras = 2048
+        const centro = Math.floor(audio.currentTime * audioBuffer.sampleRate)
+        const inicio = Math.max(0, centro - Math.floor(muestras / 2))
+        const datos = new Float32Array(muestras)
+        datos.set(audioBuffer.getChannelData(0).subarray(inicio, inicio + muestras))
+        dibujarOnda(canvasTiempoRef.current, datos)
+
+        if (!audio.paused && !audio.ended) {
+            animacionRef.current = requestAnimationFrame(actualizarOnda)
+        }
+    }
+
+    const iniciarOnda = () => {
+        if (animacionRef.current) cancelAnimationFrame(animacionRef.current)
+        actualizarOnda()
+    }
+
+    const detenerOnda = () => {
+        if (animacionRef.current) {
+            cancelAnimationFrame(animacionRef.current)
+            animacionRef.current = null
+        }
+        actualizarOnda()
+    }
+
+    useEffect(() => {
+        if (!audioBuffer) return
+        actualizarOnda()
+    }, [audioBuffer])
 
     return (
         <>
-            <canvas ref={canvasRef} width="1200" height="300" />
+            <canvas ref={canvasRef} width="1200" height="300" style={{ width: '100%', display: 'block' }} />
+            <canvas ref={canvasTiempoRef} width="1200" height="300" style={{ width: '100%', display: 'block' }} />
             <audio
                 ref={Audio}
                 controls
                 src={audioURL}
-                onPlay={start}
-                onPause={stop}
-                onEnded={stop}
+                style={{ width: '100%', display: 'block' }}
+                onPlay={() => {
+                    start()
+                    iniciarOnda()
+                }}
+                onPause={() => {
+                    stop()
+                    detenerOnda()
+                }}
+                onEnded={() => {
+                    stop()
+                    detenerOnda()
+                }}
             />
         </>
     )
@@ -70,7 +139,6 @@ function ZoomAudio({ children }) {
                 overflow: 'auto',
                 width: '100%',
                 maxWidth: '1200px',
-                height: '300px',
                 border: '1px solid #ccc',
                 position: 'relative'
             }}
@@ -80,7 +148,7 @@ function ZoomAudio({ children }) {
                     transform: `scale(${Escala})`,
                     transformOrigin: '0 0',
                     width: '100%',
-                    height: '100%'
+                    height: 'auto'
                 }}
             >
                 {children}
@@ -315,7 +383,7 @@ const GraficoCoincidencia = forwardRef(function GraficoCoincidencia(
 
         ctx.fillStyle = '#111827'
         ctx.fillRect(0, 0, ancho, alto)
-   
+
         ctx.strokeStyle = '#374151'
         ctx.lineWidth = 1
         for (let i = 0; i <= 4; i++) {
@@ -539,6 +607,29 @@ function extensionDeMime(mime) {
     return 'audio'
 }
 
+function dibujarOnda(canvas, timeArray) {
+    if (!canvas) return
+
+    const ctx = canvas.getContext('2d')
+    const ancho = canvas.width
+    const alto = canvas.height
+
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, ancho, alto)
+    ctx.lineWidth = 2
+    ctx.strokeStyle = '#2563eb'
+    ctx.beginPath()
+
+    const paso = ancho / timeArray.length
+    for (let i = 0; i < timeArray.length; i++) {
+        const x = i * paso
+        const y = (timeArray[i] * 0.5 + 0.5) * alto
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+    }
+    ctx.stroke()
+}
+
 const GraficoOriginal = forwardRef(function GraficoOriginal({ forma, duracion, nombre }, canvasRefExterno) {
     const canvasPropio = useRef(null)
     const canvasRef = canvasRefExterno || canvasPropio
@@ -547,34 +638,7 @@ const GraficoOriginal = forwardRef(function GraficoOriginal({ forma, duracion, n
         const canvas = canvasRef.current
         if (!canvas || !forma) return
 
-        const ctx = canvas.getContext('2d')
-        const ancho = canvas.width
-        const alto = canvas.height
-        const mitad = alto / 2
-
-        ctx.fillStyle = '#111827'
-        ctx.fillRect(0, 0, ancho, alto)
-
-        ctx.strokeStyle = '#374151'
-        ctx.beginPath()
-        ctx.moveTo(0, mitad)
-        ctx.lineTo(ancho, mitad)
-        ctx.stroke()
-
-        const n = forma.min.length
-        const pasoX = ancho / n
-
-        ctx.fillStyle = '#facc15'
-        for (let i = 0; i < n; i++) {
-            const x = i * pasoX
-            const yMin = mitad - forma.min[i] * mitad
-            const yMax = mitad - forma.max[i] * mitad
-            ctx.fillRect(x, Math.min(yMin, yMax), Math.max(1, pasoX), Math.max(1, Math.abs(yMax - yMin)))
-        }
-
-        ctx.fillStyle = '#e5e7eb'
-        ctx.font = '13px sans-serif'
-        ctx.fillText(`${nombre} · ${formatearTiempo(duracion)}`, 8, 16)
+        dibujarOnda(canvas, forma.max)
     }, [forma, duracion, nombre])
 
     return (
@@ -1070,44 +1134,13 @@ function Reproductor() {
                     ultimaActualizacionFrecuenciaRef.current = timestamp
                 }
 
-                dibujarOnda(timeArray)
+                dibujarOnda(canvasTiempoRef.current, timeArray)
             }
 
             animacionRef.current = requestAnimationFrame(capturarFrame)
         }
 
         capturarFrame()
-    }
-
-    const dibujarOnda = (timeArray) => {
-        const canvas = canvasTiempoRef.current
-        if (!canvas) return
-
-        const ctx = canvas.getContext('2d')
-        const ancho = canvas.width
-        const alto = canvas.height
-
-        ctx.fillStyle = '#ffffff'
-        ctx.fillRect(0, 0, ancho, alto)
-
-        ctx.lineWidth = 2
-        ctx.strokeStyle = '#2563eb'
-        ctx.beginPath()
-
-        const paso = ancho / timeArray.length
-
-        for (let i = 0; i < timeArray.length; i++) {
-            const x = i * paso
-            const y = (timeArray[i] * 0.5 + 0.5) * alto
-
-            if (i === 0) {
-                ctx.moveTo(x, y)
-            } else {
-                ctx.lineTo(x, y)
-            }
-        }
-
-        ctx.stroke()
     }
 
     const hacergrabacion = async () => {
@@ -1378,6 +1411,7 @@ function Reproductor() {
                 accept="audio/*,.atm"
                 onChange={subirAudio}
                 className="hidden"
+                style={{ display: 'none' }}
             />
 
             {(estadoGrabacion === 'grabando' || estadoGrabacion === 'pausado') && (
