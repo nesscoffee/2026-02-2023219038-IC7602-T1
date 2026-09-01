@@ -5,6 +5,7 @@ import JSZip from 'jszip';
 
 const tipos_audio = ['.mp3', '.wav']
 
+// Verifica si un nombre de archivo termina en .mp3 o .wav
 function siesAudio(nombre) {
     const minuscula = nombre.toLowerCase()
     return tipos_audio.some(tipo => minuscula.endsWith(tipo))
@@ -157,6 +158,8 @@ function ZoomAudio({ children }) {
     )
 }
 
+// Decodifica un File/Blob a AudioBuffer usando Web Audio API
+// Entrada: File o Blob de audio
 async function decodificarArchivo(file) {
     const arrayBuffer = await file.arrayBuffer()
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
@@ -165,6 +168,7 @@ async function decodificarArchivo(file) {
     return audioBuffer
 }
 
+// Reduce el espectro de frecuencias a N bandas logarítmicas (50Hz-8kHz)
 function reducirABandas(freqArray, sampleRate, fftSize, numBandas = 28) {
     const nyquist = sampleRate / 2
     const bandas = new Float32Array(numBandas)
@@ -199,6 +203,7 @@ function reducirABandas(freqArray, sampleRate, fftSize, numBandas = 28) {
     return bandas
 }
 
+// Extrae características (bandas armónicas y potencia) de un AudioBuffer usando OfflineAudioContext
 async function extraerCaracteristicas(audioBuffer, { hopSize = 2048, numBandas = 28 } = {}) {
     const offlineCtx = new OfflineAudioContext(
         1,
@@ -247,6 +252,7 @@ async function extraerCaracteristicas(audioBuffer, { hopSize = 2048, numBandas =
 }
 
 
+// Promedia un array de frames de bandas
 function promedioBandas(frames) {
     if (!frames.length) return new Float32Array(0)
     const numBandas = frames[0].length
@@ -260,6 +266,7 @@ function promedioBandas(frames) {
     return promedio
 }
 
+// Similitud del coseno entre dos vectores normalizados (asume norma = 1)
 function similitudCoseno(a, b) {
     let dot = 0
     for (let i = 0; i < a.length; i++) dot += a[i] * b[i]
@@ -267,6 +274,7 @@ function similitudCoseno(a, b) {
 }
 
 
+// Calcula confianza combinando puntaje bruto y unicidad estadística (z-score)
 function calcularConfianza(puntajes, mejorPuntaje) {
     const n = puntajes.length
     const confianzaBruta = Math.max(0, Math.min(1, mejorPuntaje))
@@ -291,12 +299,14 @@ function calcularConfianza(puntajes, mejorPuntaje) {
 }
 
 
+// Umbral de silencio = 5% de la potencia máxima
 function calcularUmbralSilencio(potencia) {
     let max = 0
     for (let i = 0; i < potencia.length; i++) max = Math.max(max, potencia[i])
     return max * 0.05
 }
 
+// Busca audio A dentro de B deslizando frame a frame; ignora silencios mutuos
 function buscarCoincidencia(featA, featB, modo = 'armonicos') {
     const framesA = modo === 'armonicos' ? featA.bandas : featA.potencia
     const framesB = modo === 'armonicos' ? featB.bandas : featB.potencia
@@ -357,6 +367,7 @@ function buscarCoincidencia(featA, featB, modo = 'armonicos') {
     }
 }
 
+// Convierte segundos a formato MM:SS
 function formatearTiempo(segundos) {
     const m = Math.floor(segundos / 60)
     const s = Math.floor(segundos % 60)
@@ -576,6 +587,7 @@ const GraficoPerfil = forwardRef(function GraficoPerfil({ perfilA, perfilB, modo
 })
 
 
+// Reduce canal de audio a min/max por muestra para visualizar forma de onda
 function extraerFormaOnda(channelData, muestrasSalida = 1600) {
     const paso = Math.floor(channelData.length / muestrasSalida) || 1
     const min = new Float32Array(muestrasSalida)
@@ -598,6 +610,7 @@ function extraerFormaOnda(channelData, muestrasSalida = 1600) {
     return { min, max }
 }
 
+// Mapea MIME type a extensión de archivo
 function extensionDeMime(mime) {
     if (!mime) return 'audio'
     if (mime.includes('wav')) return 'wav'
@@ -607,6 +620,7 @@ function extensionDeMime(mime) {
     return 'audio'
 }
 
+// Dibuja forma de onda en canvas (asume valores -1 a 1)
 function dibujarOnda(canvas, timeArray) {
     if (!canvas) return
 
@@ -652,6 +666,7 @@ const GraficoOriginal = forwardRef(function GraficoOriginal({ forma, duracion, n
 })
 
 
+// Hook simple para grabar audio del micrófono usando MediaRecorder
 function useGrabadorSimple() {
     const [grabando, setGrabando] = useState(false)
     const [blob, setBlob] = useState(null)
@@ -1057,12 +1072,14 @@ function Reproductor() {
         }
     }, [])
 
+    // Convierte índice de bin FFT a frecuencia en Hz
     const obtenerFrecuencia = (indice) => {
         if (!metadataRef.current) return 0
         const { sampleRate, fftSize } = metadataRef.current
         return (indice * sampleRate) / fftSize
     }
 
+    // Encuentra la frecuencia con mayor magnitud en el array FFT
     const obtenerFrecuenciaDominante = (freqArray) => {
         if (!metadataRef.current || !freqArray.length) return null
 
@@ -1080,6 +1097,7 @@ function Reproductor() {
         return indiceMayor === -1 ? null : obtenerFrecuencia(indiceMayor)
     }
 
+    // Inicializa Web Audio API para análisis propio durante grabación.
     const iniciarAnalisisPropio = (stream) => {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext
         if (!AudioContextClass) {
@@ -1143,6 +1161,7 @@ function Reproductor() {
         capturarFrame()
     }
 
+    // Inicia grabación: micrófono + MediaRecorder + análisis FFT propio
     const hacergrabacion = async () => {
         try {
             setsegundos(0)
@@ -1228,6 +1247,7 @@ function Reproductor() {
         }
     }
 
+    // Detiene todo: recorder, stream, análisis, timers, visualizer
     const parargrabacion = () => {
         setEstadoGrabacion('detenido')
 
@@ -1274,6 +1294,7 @@ function Reproductor() {
         }
     }
 
+    // Carga archivo .atm (zip con audio+gráficos) o audio directo
     const subirAudio = async (event) => {
         const archivo = event.target.files[0]
         if (!archivo) return
@@ -1332,19 +1353,9 @@ function Reproductor() {
         event.target.value = ''
     }
 
-    const tiempoFormateado = () => {
-        const minutos = Math.floor(segundos / 60)
-        const segundosRestantes = segundos % 60
-        return `${minutos.toString().padStart(2, '0')}:${segundosRestantes.toString().padStart(2, '0')}`
-    }
-
     return (
         <div className="w-full min-h-screen flex flex-col items-center justify-center bg-gradient-to-r from-cyan-500 to-blue-500 gap-4 p-4">
             <h1 className="text-white text-[60px] font-black">Analizador</h1>
-
-            <h2 className="text-[100px] text-white bg-black p-4 rounded-lg mx-4">
-                {tiempoFormateado(segundos)}
-            </h2>
 
             {frecuenciaDominante !== null &&
                 (estadoGrabacion === 'grabando' || estadoGrabacion === 'pausado') && (
