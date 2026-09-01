@@ -1353,20 +1353,9 @@ function Reproductor() {
         event.target.value = ''
     }
 
-    // Formatea segundos a MM:SS
-    const tiempoFormateado = () => {
-        const minutos = Math.floor(segundos / 60)
-        const segundosRestantes = segundos % 60
-        return `${minutos.toString().padStart(2, '0')}:${segundosRestantes.toString().padStart(2, '0')}`
-    }
-
     return (
         <div className="w-full min-h-screen flex flex-col items-center justify-center bg-gradient-to-r from-cyan-500 to-blue-500 gap-4 p-4">
             <h1 className="text-white text-[60px] font-black">Analizador</h1>
-
-            <h2 className="text-[100px] text-white bg-black p-4 rounded-lg mx-4">
-                {tiempoFormateado(segundos)}
-            </h2>
 
             {frecuenciaDominante !== null &&
                 (estadoGrabacion === 'grabando' || estadoGrabacion === 'pausado') && (
